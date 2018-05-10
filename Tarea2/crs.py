@@ -151,8 +151,14 @@ drv.Context.synchronize()
 GpuPrintCRS(
         a_gpu,valsA_gpu,column_indexesA_gpu,row_pointersA_gpu,n_gpu,n_gpu,zeroCountA,
         block=(1,1,1), grid=(1,1,1))
-ThreadedGpuMatrixCRSMultiplication(valsA_gpu,column_indexesA_gpu,row_pointersA_gpu,b_gpu,drv.Out(c),
+drv.Context.synchronize()
+ThreadedGpuMatrixCRSMultiplication(valsA_gpu,column_indexesA_gpu,row_pointersA_gpu,b_gpu,drv.Out(c),n_gpu,
+        block=(N,1,1), grid=(N,1,1))
+drv.Context.synchronize()
+GpuPrintCRS(
+        a_gpu,valsA_gpu,column_indexesA_gpu,row_pointersA_gpu,n_gpu,n_gpu,zeroCountA,
         block=(1,1,1), grid=(1,1,1))
+drv.Context.synchronize()
 print(zeroCountA)
 print(c)
 #print(a)
