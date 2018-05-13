@@ -100,20 +100,21 @@ extern "C"{
     printf("]");
     printf("row_ptr: [");
     for(int i = 0; i < n+1;i++){
-        printf("%d ",row_pointers[i]);
     }
     printf("]");
 	}
 
-	__global__ void ThreadedGpuMatrixCRSMultiplication(int *vals,int *column_indexes,
-	                                                   int *row_pointers,int *B, int *C, int Bn){
+	__global__ void ThreadedGpuMatrixCRSMultiplication(float *vals,float *column_indexes,
+	                                                   float *row_pointers,float *B, float *C, int Bn){
 	    int row = blockIdx.x* blockDim.x;
 	    int column = threadIdx.x;
 	    int valIndex = row_pointers[blockIdx.x];
 	    int valueCount = row_pointers[blockIdx.x+1]-row_pointers[blockIdx.x];
+	    
 	    C[row+column] = 0;
 	    for(int k = 0; k < valueCount;k++){
-	        C[row+column]= C[row+column] + vals[valIndex+k]*B[column_indexes[valIndex+k]*Bn+column];
+	    	int columnValue = column_indexes[valIndex+k];
+	        C[row+column]= C[row+column] + vals[valIndex+k]*B[columnValue*Bn+column];
 	    }
 	}
 	}
@@ -128,39 +129,46 @@ b = numpy.random.randint(10,size=(N,N)).astype(numpy.float32)
 
 dest = numpy.zeros(shape=(N,N)).astype(numpy.float32)
 
-valsA = numpy.random.randint(10,size=(N+1,1)).astype(numpy.float32)
-column_indexesA = numpy.random.randint(10,size=(N*N,1)).astype(numpy.float32)
+valsA = numpy.random.randint(10,size=N*N).astype(numpy.float32)
+column_indexesA = numpy.random.randint(10,size=N*N).astype(numpy.float32)
 
-row_pointersA = numpy.random.randint(10,size=(N+1,1)).astype(numpy.float32)
+#Pass values to GPU
+row_pointersA = numpy.random.randint(10,size=N+1).astype(numpy.float32)
 zeroCountA = numpy.uint32(0)
 n_gpu = numpy.uint32(N)
-zeroCountA_gpu = drv.mem_alloc(zeroCountA.nbytes)
 a_gpu = drv.mem_alloc(a.nbytes)
-b_gpu = drv.mem_alloc(b.nbytes)
 valsA_gpu = drv.mem_alloc(valsA.nbytes)
 column_indexesA_gpu = drv.mem_alloc(column_indexesA.nbytes)
 row_pointersA_gpu = drv.mem_alloc(row_pointersA.nbytes)
 
 initializeCRS(
-        a_gpu,valsA_gpu,column_indexesA_gpu,row_pointersA_gpu,n_gpu,n_gpu,zeroCountA_gpu,
+        a_gpu,valsA_gpu,column_indexesA_gpu,row_pointersA_gpu,n_gpu,n_gpu,drv.In(zeroCountA),
         block=(1,1,1), grid=(1,1,1))
-
+#Return A variables to GPU
+drv.Context.synchronize()
+drv.memcpy_dtoh(a,a_gpu)
+drv.memcpy_dtoh(valsA, valsA_gpu)
+drv.memcpy_dtoh(column_indexesA, column_indexesA_gpu)
+drv.memcpy_dtoh(row_pointersA,row_pointersA_gpu)
+#Send to GPU again
+drv.Context.synchronize()
+#valsA_gpu = drv.mem_alloc(valsA.nbytes)
+#column_indexesA_gpu = drv.mem_alloc(column_indexesA.nbytes)
+#row_pointersA_gpu = drv.mem_alloc(row_pointersA.nbytes)
 
 c = numpy.zeros_like(a).astype(numpy.float32)
 drv.Context.synchronize()
-GpuPrintCRS(
-        a_gpu,valsA_gpu,column_indexesA_gpu,row_pointersA_gpu,n_gpu,n_gpu,zeroCountA,
-        block=(1,1,1), grid=(1,1,1))
-drv.Context.synchronize()
-ThreadedGpuMatrixCRSMultiplication(valsA_gpu,column_indexesA_gpu,row_pointersA_gpu,b_gpu,drv.Out(c),n_gpu,
+print(a)
+print(valsA)
+print(column_indexesA)
+print(row_pointersA)
+ThreadedGpuMatrixCRSMultiplication(drv.In(valsA),drv.In(column_indexesA),drv.In(row_pointersA),
+	drv.In(b),drv.Out(c),n_gpu,
         block=(N,1,1), grid=(N,1,1))
-drv.Context.synchronize()
-GpuPrintCRS(
-        a_gpu,valsA_gpu,column_indexesA_gpu,row_pointersA_gpu,n_gpu,n_gpu,zeroCountA,
-        block=(1,1,1), grid=(1,1,1))
 drv.Context.synchronize()
 print(zeroCountA)
 print(c)
+print(numpy.equal(c,numpy.matmul(a,b)))
 #print(a)
 #print(b)
 #print(numpy.matmul(a,b))
